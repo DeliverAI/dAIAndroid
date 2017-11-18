@@ -24,6 +24,7 @@ import android.content.DialogInterface;
 import android.content.pm.PackageManager;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.speech.tts.TextToSpeech;
 import android.support.design.widget.Snackbar;
 import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AppCompatActivity;
@@ -54,6 +55,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.util.Locale;
 
 /**
  * Activity for the face tracker app.  This app detects faces with the rear facing camera, and draws
@@ -61,8 +63,6 @@ import java.io.IOException;
  */
 public final class FaceTrackerActivity extends AppCompatActivity {
     private static final String TAG = "FaceTracker";
-    private static final long MINIMUM_PHOTO_DELAY_MS = 2000;
-    private static final String RECOGNIZE_ENDPOINT = "https://api.kairos.com/recognize";
 
     private CameraSource mCameraSource = null;
 
@@ -74,6 +74,7 @@ public final class FaceTrackerActivity extends AppCompatActivity {
     private static final int RC_HANDLE_CAMERA_PERM = 2;
 
     // Camera trigger options
+    private static final long MINIMUM_PHOTO_DELAY_MS = 2000;
     public static final float FACE_PROXIMITY_TRIGGER = 200f;
     private long mLastTriggerTime;
 
@@ -82,9 +83,14 @@ public final class FaceTrackerActivity extends AppCompatActivity {
     DatabaseReference mIsOrderMade = mDatabase.child("isOrderMade");
 
     //KAIROS Variables
+    private static final String RECOGNIZE_ENDPOINT = "https://api.kairos.com/recognize";
     private static final String KAIROS_APP_KEY = "44adf4e638564316508a6132c5433136";
     private static final String KAIROS_APP_ID = "dd62b435";
     private static final String GALLERY_ID = "GalleryOne";
+
+    //MISC Vars
+    private static TextToSpeech mTextToSpeechObj;
+
 
 
     //==============================================================================================
@@ -99,12 +105,15 @@ public final class FaceTrackerActivity extends AppCompatActivity {
         super.onCreate(icicle);
         setContentView(R.layout.main);
 
+        initializeTTS();
+
         mPreview = (CameraSourcePreview) findViewById(R.id.preview);
         mGraphicOverlay = (GraphicOverlay) findViewById(R.id.faceOverlay);
 
+
         // Check for the camera permission before accessing the camera.  If the
         // permission is not granted yet, request permission.
-        //// TODO: 2017-11-18 put this code to wait for arrival place 
+        //// TODO: 2017-11-18 put this code to wait for arrival place
         int rc = ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA);
         if (rc == PackageManager.PERMISSION_GRANTED) {
             createCameraSource();
@@ -115,7 +124,18 @@ public final class FaceTrackerActivity extends AppCompatActivity {
         mLastTriggerTime = System.currentTimeMillis();
 
         initPurchaseListener();
+    }
 
+    private void initializeTTS() {
+        mTextToSpeechObj = new TextToSpeech(getApplicationContext(), new TextToSpeech.OnInitListener() {
+            @Override
+            public void onInit(int status) {
+                if(status != TextToSpeech.ERROR){
+                    mTextToSpeechObj.setLanguage(Locale.UK);
+                    Log.i(TAG, "TTS initialized");
+                }
+            }
+        });
     }
 
     private void initPurchaseListener() {
@@ -124,7 +144,8 @@ public final class FaceTrackerActivity extends AppCompatActivity {
             public void onDataChange(DataSnapshot dataSnapshot) {
                 boolean value = (boolean) dataSnapshot.getValue();
                 if(value)
-                    Log.i(TAG, "Value changed to true!");
+                    mTextToSpeechObj.speak("Purchase made. Sending dildo to Mike Lam at Address 1", TextToSpeech.QUEUE_ADD, null, "purchase_made");
+//                    Log.i(TAG, "Value changed to true!");
             }
 
             @Override
@@ -133,6 +154,8 @@ public final class FaceTrackerActivity extends AppCompatActivity {
             }
         });
     }
+
+
 
     /**
      * Handles the requesting of the camera permission.  This includes
@@ -433,7 +456,7 @@ public final class FaceTrackerActivity extends AppCompatActivity {
             }
         }
 
-
+//hi
 
         /**
          * Hide the graphic when the corresponding face was not detected.  This can happen for

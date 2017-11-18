@@ -31,9 +31,11 @@ import android.support.v7.app.AppCompatActivity;
 import android.util.Base64;
 import android.util.Log;
 import android.view.View;
+import android.widget.ProgressBar;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
+import com.google.android.gms.samples.vision.face.facetracker.models.User;
 import com.google.android.gms.vision.CameraSource;
 import com.google.android.gms.vision.MultiProcessor;
 import com.google.android.gms.vision.Tracker;
@@ -76,11 +78,13 @@ public final class FaceTrackerActivity extends AppCompatActivity {
     // Camera trigger options
     private static final long MINIMUM_PHOTO_DELAY_MS = 2000;
     public static final float FACE_PROXIMITY_TRIGGER = 200f;
+    public static final int MAX_RECOGNITION_ATTEMPTS = 4;
     private long mLastTriggerTime;
 
     //Firebase Variables
     DatabaseReference mDatabase = FirebaseDatabase.getInstance().getReference();
-    DatabaseReference mIsOrderMade = mDatabase.child("isOrderMade");
+    DatabaseReference mWhoOrdered = mDatabase.child("who_ordered");
+    DatabaseReference mPackageArrived = mDatabase.child("package_arrived");
 
     //KAIROS Variables
     private static final String RECOGNIZE_ENDPOINT = "https://api.kairos.com/recognize";
@@ -90,7 +94,10 @@ public final class FaceTrackerActivity extends AppCompatActivity {
 
     //MISC Vars
     private static TextToSpeech mTextToSpeechObj;
-
+    private User mUser;
+    private boolean mAllowImage;
+    private int mRecognitionAttempts;
+    private ProgressBar mProgressBar;
 
 
     //==============================================================================================
@@ -103,25 +110,10 @@ public final class FaceTrackerActivity extends AppCompatActivity {
     @Override
     public void onCreate(Bundle icicle) {
         super.onCreate(icicle);
-        setContentView(R.layout.main);
-
         initializeTTS();
 
-        mPreview = (CameraSourcePreview) findViewById(R.id.preview);
-        mGraphicOverlay = (GraphicOverlay) findViewById(R.id.faceOverlay);
-
-
-        // Check for the camera permission before accessing the camera.  If the
-        // permission is not granted yet, request permission.
-        //// TODO: 2017-11-18 put this code to wait for arrival place
-        int rc = ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA);
-        if (rc == PackageManager.PERMISSION_GRANTED) {
-            createCameraSource();
-        } else {
-            requestCameraPermission();
-        }
-
-        mLastTriggerTime = System.currentTimeMillis();
+        setContentView(R.layout.main);
+        mProgressBar = (ProgressBar) findViewById(R.id.loading_api);
 
         initPurchaseListener();
     }
@@ -139,13 +131,25 @@ public final class FaceTrackerActivity extends AppCompatActivity {
     }
 
     private void initPurchaseListener() {
-        mIsOrderMade.addValueEventListener(new ValueEventListener() {
+        mWhoOrdered.addValueEventListener(new ValueEventListener() {
             @Override
             public void onDataChange(DataSnapshot dataSnapshot) {
-                boolean value = (boolean) dataSnapshot.getValue();
-                if(value)
-                    mTextToSpeechObj.speak("Purchase made. Sending dildo to Mike Lam at Address 1", TextToSpeech.QUEUE_ADD, null, "purchase_made");
-//                    Log.i(TAG, "Value changed to true!");
+
+                if((boolean) dataSnapshot.child("order_made").getValue()){
+
+                    mWhoOrdered.child("order_made").setValue(false);
+
+                    mUser = new User(dataSnapshot.child("name").getValue().toString(),
+                            dataSnapshot.child("phone_number").getValue().toString(),
+                            dataSnapshot.child("address").getValue().toString());
+
+
+                    String speech = "Purchase made. Sending package to " + mUser.getName() + " at " + mUser.getAddress();
+
+                    mTextToSpeechObj.speak(speech, TextToSpeech.QUEUE_ADD, null, "purchase_made");
+                    initArrivalListener();
+                }
+
             }
 
             @Override
@@ -155,6 +159,45 @@ public final class FaceTrackerActivity extends AppCompatActivity {
         });
     }
 
+    private void initArrivalListener() {
+        mPackageArrived.addValueEventListener(new ValueEventListener() {
+            @Override
+            public void onDataChange(DataSnapshot dataSnapshot) {
+                if((boolean) dataSnapshot.getValue()){
+                    mPackageArrived.setValue(false);
+
+                    Log.i(TAG, "CALL USER " + mUser.getPhoneNumber());
+                    mTextToSpeechObj.speak("Arrived. Calling user. Starting cam.", TextToSpeech.QUEUE_ADD, null, "purchase_made");
+                    initCamera();
+                }
+            }
+
+            @Override
+            public void onCancelled(DatabaseError databaseError) {
+
+            }
+        });
+    }
+
+    private void initCamera() {
+        mPreview = (CameraSourcePreview) findViewById(R.id.preview);
+        mGraphicOverlay = (GraphicOverlay) findViewById(R.id.faceOverlay);
+
+        mRecognitionAttempts = 0;
+        mAllowImage = true;
+
+        // Check for the camera permission before accessing the camera.  If the
+        // permission is not granted yet, request permission.
+        int rc = ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA);
+        if (rc == PackageManager.PERMISSION_GRANTED) {
+            createCameraSource();
+        } else {
+            requestCameraPermission();
+        }
+        mLastTriggerTime = System.currentTimeMillis();
+        startCameraSource();
+
+    }
 
 
     /**
@@ -240,7 +283,7 @@ public final class FaceTrackerActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
-        mPreview.stop();
+        if(mPreview != null) mPreview.stop();
     }
 
     /**
@@ -334,6 +377,7 @@ public final class FaceTrackerActivity extends AppCompatActivity {
     }
 
     private void snapImageAndRecognize() {
+        mRecognitionAttempts++;
         mLastTriggerTime = System.currentTimeMillis();
         mCameraSource.takePicture(new CameraSource.ShutterCallback() {
             @Override
@@ -373,24 +417,42 @@ public final class FaceTrackerActivity extends AppCompatActivity {
                                             JSONObject transactionObject =
                                                     firstImageObject.getJSONObject("transaction");
 
+
+//                                            if (transactionObject.getString("status").equals("failure")) {
+//                                                mTextToSpeechObj.speak("You don't appear to be in our database!", TextToSpeech.QUEUE_ADD, null, "recognition_error");
+//                                                return;
+//                                            }
+
                                             JSONObject candidateObject =
                                                     firstImageObject.getJSONArray("candidates").getJSONObject(0);
 
                                             String candidate = candidateObject.getString("subject_id");
 
-                                            if(candidate.equalsIgnoreCase("jonah"))
-                                                Log.i(TAG, "Jonah Jonah Jonah");
+                                            String speech;
 
-                                            else
-                                                Log.i(TAG, "NOT JONAH NOT NOT NOT");
-
-
-                                            if (transactionObject.getString("status").equals("failure")) {
-                                                Log.i(TAG, "FAILED");
-                                                return;
+                                            if(candidate.equalsIgnoreCase(mUser.getName())){
+                                                speech = "Thank you " + mUser.getName() + ". Please take your package!";
+                                                Log.i(TAG, "IS USER");
+                                                mRecognitionAttempts = 0;
+                                                mTextToSpeechObj.speak(speech, TextToSpeech.QUEUE_ADD, null, "recognition_success");
                                             }
+                                            else{
+                                                speech = "Hi " + candidate + ". Please get " + mUser.getName() + " to get his own package!";
+                                                Log.i(TAG, "not the user");
+                                                mTextToSpeechObj.speak(speech, TextToSpeech.QUEUE_ADD, null, "recognition_success");
+                                            }
+
+
+
                                         } catch (JSONException e1) {
                                             Log.i(TAG, e1.toString());
+                                            if(mRecognitionAttempts < MAX_RECOGNITION_ATTEMPTS){
+                                                mTextToSpeechObj.speak("I could not recognize you, please try again.", TextToSpeech.QUEUE_ADD, null, "recognition_error");
+                                                snapImageAndRecognize();
+                                            }else{
+                                                mTextToSpeechObj.speak("Cannot recognize your face. An error occurred.", TextToSpeech.QUEUE_ADD, null, "recognition_error");
+                                            }
+
                                         }
 
                                     }
@@ -448,15 +510,15 @@ public final class FaceTrackerActivity extends AppCompatActivity {
 
             if(face.getWidth() >= FACE_PROXIMITY_TRIGGER){
 
-                if(System.currentTimeMillis() - mLastTriggerTime > MINIMUM_PHOTO_DELAY_MS){
+                if(System.currentTimeMillis() - mLastTriggerTime > MINIMUM_PHOTO_DELAY_MS && mAllowImage){
                     Log.i(TAG, "Snapping image...");
                     snapImageAndRecognize();
+                    mAllowImage = false;
                 }
 
             }
         }
 
-//hi
 
         /**
          * Hide the graphic when the corresponding face was not detected.  This can happen for

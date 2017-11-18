@@ -24,6 +24,7 @@ import android.content.DialogInterface;
 import android.content.pm.PackageManager;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Handler;
 import android.speech.tts.TextToSpeech;
 import android.support.design.widget.Snackbar;
 import android.support.v4.app.ActivityCompat;
@@ -51,6 +52,10 @@ import com.google.firebase.database.ValueEventListener;
 import com.google.gson.JsonObject;
 import com.koushikdutta.async.future.FutureCallback;
 import com.koushikdutta.ion.Ion;
+//import com.twilio.Twilio;
+//import com.twilio.rest.api.v2010.account.Message;
+//import com.twilio.type.PhoneNumber;
+
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -85,12 +90,19 @@ public final class FaceTrackerActivity extends AppCompatActivity {
     DatabaseReference mDatabase = FirebaseDatabase.getInstance().getReference();
     DatabaseReference mWhoOrdered = mDatabase.child("who_ordered");
     DatabaseReference mPackageArrived = mDatabase.child("package_arrived");
+    DatabaseReference mPackageUnlock = mDatabase.child("package_unlock");
 
     //KAIROS Variables
     private static final String RECOGNIZE_ENDPOINT = "https://api.kairos.com/recognize";
     private static final String KAIROS_APP_KEY = "44adf4e638564316508a6132c5433136";
     private static final String KAIROS_APP_ID = "dd62b435";
     private static final String GALLERY_ID = "GalleryOne";
+
+    //TWILIO
+//    public static final String TWILIO_ACCOUNT_SID = "ACXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
+//    public static final String TWILIO_AUTH_TOKEN = "your_auth_token";
+//    private static final PhoneNumber TWILIO_PHONE_NUMBER = new PhoneNumber("+1234567890");
+
 
     //MISC Vars
     private static TextToSpeech mTextToSpeechObj;
@@ -110,7 +122,8 @@ public final class FaceTrackerActivity extends AppCompatActivity {
     @Override
     public void onCreate(Bundle icicle) {
         super.onCreate(icicle);
-        initializeTTS();
+
+        initializeServices();
 
         setContentView(R.layout.main);
         mProgressBar = (ProgressBar) findViewById(R.id.loading_api);
@@ -118,7 +131,7 @@ public final class FaceTrackerActivity extends AppCompatActivity {
         initPurchaseListener();
     }
 
-    private void initializeTTS() {
+    private void initializeServices() {
         mTextToSpeechObj = new TextToSpeech(getApplicationContext(), new TextToSpeech.OnInitListener() {
             @Override
             public void onInit(int status) {
@@ -128,6 +141,7 @@ public final class FaceTrackerActivity extends AppCompatActivity {
                 }
             }
         });
+//        Twilio.init(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
     }
 
     private void initPurchaseListener() {
@@ -136,6 +150,8 @@ public final class FaceTrackerActivity extends AppCompatActivity {
             public void onDataChange(DataSnapshot dataSnapshot) {
 
                 if((boolean) dataSnapshot.child("order_made").getValue()){
+
+                    mWhoOrdered.removeEventListener(this);
 
                     mWhoOrdered.child("order_made").setValue(false);
 
@@ -164,10 +180,15 @@ public final class FaceTrackerActivity extends AppCompatActivity {
             @Override
             public void onDataChange(DataSnapshot dataSnapshot) {
                 if((boolean) dataSnapshot.getValue()){
+                    mPackageArrived.removeEventListener(this);
+
                     mPackageArrived.setValue(false);
+
+//                    makeTwilioCalls();
 
                     Log.i(TAG, "CALL USER " + mUser.getPhoneNumber());
                     mTextToSpeechObj.speak("Arrived. Calling user. Starting cam.", TextToSpeech.QUEUE_ADD, null, "purchase_made");
+
                     initCamera();
                 }
             }
@@ -178,6 +199,12 @@ public final class FaceTrackerActivity extends AppCompatActivity {
             }
         });
     }
+
+//    private void makeTwilioCalls() {
+//        Message message = Message
+//                .creator(new PhoneNumber(mUser.getPhoneNumber()), TWILIO_PHONE_NUMBER, "Your package has arrived! Please come outside.")
+//                .create();
+//    }
 
     private void initCamera() {
         mPreview = (CameraSourcePreview) findViewById(R.id.preview);
@@ -432,14 +459,22 @@ public final class FaceTrackerActivity extends AppCompatActivity {
 
                                             if(candidate.equalsIgnoreCase(mUser.getName())){
                                                 speech = "Thank you " + mUser.getName() + ". Please take your package!";
+                                                mPackageUnlock.setValue(true);
                                                 Log.i(TAG, "IS USER");
                                                 mRecognitionAttempts = 0;
                                                 mTextToSpeechObj.speak(speech, TextToSpeech.QUEUE_ADD, null, "recognition_success");
+                                                initPurchaseListener();
                                             }
                                             else{
                                                 speech = "Hi " + candidate + ". Please get " + mUser.getName() + " to get his own package!";
                                                 Log.i(TAG, "not the user");
                                                 mTextToSpeechObj.speak(speech, TextToSpeech.QUEUE_ADD, null, "recognition_success");
+                                                new Handler().postDelayed(new Runnable() {
+                                                    @Override
+                                                    public void run() {
+                                                        mAllowImage = true;
+                                                    }
+                                                }, 5000);
                                             }
 
 
@@ -448,9 +483,15 @@ public final class FaceTrackerActivity extends AppCompatActivity {
                                             Log.i(TAG, e1.toString());
                                             if(mRecognitionAttempts < MAX_RECOGNITION_ATTEMPTS){
                                                 mTextToSpeechObj.speak("I could not recognize you, please try again.", TextToSpeech.QUEUE_ADD, null, "recognition_error");
-                                                snapImageAndRecognize();
+                                                new Handler().postDelayed(new Runnable() {
+                                                    @Override
+                                                    public void run() {
+                                                        mAllowImage = true;
+                                                    }
+                                                }, 5000);
                                             }else{
                                                 mTextToSpeechObj.speak("Cannot recognize your face. An error occurred.", TextToSpeech.QUEUE_ADD, null, "recognition_error");
+                                                initPurchaseListener();
                                             }
 
                                         }

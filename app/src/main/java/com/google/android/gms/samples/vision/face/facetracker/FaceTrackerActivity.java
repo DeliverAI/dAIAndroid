@@ -99,9 +99,8 @@ public final class FaceTrackerActivity extends AppCompatActivity {
     private static final String GALLERY_ID = "GalleryOne";
 
     //TWILIO
-//    public static final String TWILIO_ACCOUNT_SID = "ACXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
-//    public static final String TWILIO_AUTH_TOKEN = "your_auth_token";
-//    private static final PhoneNumber TWILIO_PHONE_NUMBER = new PhoneNumber("+1234567890");
+    public static final String TWILIO_ACCOUNT_SID = "ACd3892fd1fce2acec2e5824c6fbade95d";
+    public static final String TWILIO_AUTH_TOKEN = "003b7c221c616c569f611d435cc63dc9";
 
 
     //MISC Vars
@@ -141,7 +140,7 @@ public final class FaceTrackerActivity extends AppCompatActivity {
                 }
             }
         });
-//        Twilio.init(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+
     }
 
     private void initPurchaseListener() {
@@ -181,15 +180,20 @@ public final class FaceTrackerActivity extends AppCompatActivity {
             public void onDataChange(DataSnapshot dataSnapshot) {
                 if((boolean) dataSnapshot.getValue()){
                     mPackageArrived.removeEventListener(this);
-
+                    makeTwilioCalls();
                     mPackageArrived.setValue(false);
+                    String speech = "Now texting " + mUser.getName() + " to notify them that their package has arrived.";
 
-//                    makeTwilioCalls();
-
-                    Log.i(TAG, "CALL USER " + mUser.getPhoneNumber());
-                    mTextToSpeechObj.speak("Arrived. Calling user. Starting cam.", TextToSpeech.QUEUE_ADD, null, "purchase_made");
-
+                    mTextToSpeechObj.speak(speech, TextToSpeech.QUEUE_ADD, null, "messaging_user");
                     initCamera();
+                    new Handler().postDelayed(new Runnable() {
+                        @Override
+                        public void run() {
+                            mTextToSpeechObj.speak("Please look at the camera", TextToSpeech.QUEUE_ADD, null, "messaging_user");
+                        }
+                    }, 6000);
+
+
                 }
             }
 
@@ -200,11 +204,33 @@ public final class FaceTrackerActivity extends AppCompatActivity {
         });
     }
 
-//    private void makeTwilioCalls() {
-//        Message message = Message
-//                .creator(new PhoneNumber(mUser.getPhoneNumber()), TWILIO_PHONE_NUMBER, "Your package has arrived! Please come outside.")
-//                .create();
-//    }
+    private void makeTwilioCalls() {
+
+        String url = "https://api.twilio.com/2010-04-01/Accounts/"+TWILIO_ACCOUNT_SID+"/SMS/Messages";
+        String base64EncodedCredentials = "Basic " + Base64.encodeToString((TWILIO_ACCOUNT_SID + ":" + TWILIO_AUTH_TOKEN).getBytes(), Base64.NO_WRAP);
+        String fromNumber = "+12897686440";
+        String toNumber = "+1" + mUser.getPhoneNumber();
+
+        JsonObject json = new JsonObject();
+
+        json.addProperty("From", fromNumber);
+        json.addProperty("To", toNumber);
+        json.addProperty("Body", "Hello there");
+
+        Ion.with(getApplicationContext())
+                .load(url)
+                .addHeader("Authorization", base64EncodedCredentials)
+                .setBodyParameter("From", fromNumber)
+                .setBodyParameter("To", toNumber)
+                .setBodyParameter("Body", "Your package has arrived! Head outside to pick it up!")
+                .asString()
+                .setCallback(new FutureCallback<String>() {
+                    @Override
+                    public void onCompleted(Exception e, String result) {
+                        Log.i(TAG, result);
+                    }
+                });
+    }
 
     private void initCamera() {
         mPreview = (CameraSourcePreview) findViewById(R.id.preview);
@@ -458,7 +484,7 @@ public final class FaceTrackerActivity extends AppCompatActivity {
                                             String speech;
 
                                             if(candidate.equalsIgnoreCase(mUser.getName())){
-                                                speech = "Thank you " + mUser.getName() + ". Please take your package!";
+                                                speech = "Face recognized. Thank you " + mUser.getName() + ". Please take your package!";
                                                 mPackageUnlock.setValue(true);
                                                 Log.i(TAG, "IS USER");
                                                 mRecognitionAttempts = 0;
@@ -466,7 +492,7 @@ public final class FaceTrackerActivity extends AppCompatActivity {
                                                 initPurchaseListener();
                                             }
                                             else{
-                                                speech = "Hi " + candidate + ". Please get " + mUser.getName() + " to get his own package!";
+                                                speech = "Hi " + candidate + ". You are not " + mUser.getName() + ". Please get " + mUser.getName() + " to get his own package!";
                                                 Log.i(TAG, "not the user");
                                                 mTextToSpeechObj.speak(speech, TextToSpeech.QUEUE_ADD, null, "recognition_success");
                                                 new Handler().postDelayed(new Runnable() {
@@ -490,7 +516,7 @@ public final class FaceTrackerActivity extends AppCompatActivity {
                                                     }
                                                 }, 5000);
                                             }else{
-                                                mTextToSpeechObj.speak("Cannot recognize your face. An error occurred.", TextToSpeech.QUEUE_ADD, null, "recognition_error");
+                                                mTextToSpeechObj.speak("Cannot recognize your face. No more attempts allowed!.", TextToSpeech.QUEUE_ADD, null, "recognition_error");
                                                 initPurchaseListener();
                                             }
 

@@ -152,7 +152,7 @@ public final class FaceTrackerActivity extends AppCompatActivity {
 
                     mWhoOrdered.removeEventListener(this);
 
-                    mWhoOrdered.child("order_made").setValue(false);
+//                    mWhoOrdered.child("order_made").setValue(false);
 
                     mUser = new User(dataSnapshot.child("name").getValue().toString(),
                             dataSnapshot.child("phone_number").getValue().toString(),
@@ -181,6 +181,7 @@ public final class FaceTrackerActivity extends AppCompatActivity {
                 if((boolean) dataSnapshot.getValue()){
                     mPackageArrived.removeEventListener(this);
                     makeTwilioCalls();
+                    mWhoOrdered.child("order_made").setValue(false);
                     mPackageArrived.setValue(false);
                     String speech = "Now texting " + mUser.getName() + " to notify them that their package has arrived.";
 
@@ -209,7 +210,8 @@ public final class FaceTrackerActivity extends AppCompatActivity {
         String url = "https://api.twilio.com/2010-04-01/Accounts/"+TWILIO_ACCOUNT_SID+"/SMS/Messages";
         String base64EncodedCredentials = "Basic " + Base64.encodeToString((TWILIO_ACCOUNT_SID + ":" + TWILIO_AUTH_TOKEN).getBytes(), Base64.NO_WRAP);
         String fromNumber = "+12897686440";
-        String toNumber = "+1" + mUser.getPhoneNumber();
+//        String toNumber = "+1" + mUser.getPhoneNumber();
+        String toNumber = "+12892080810";
 
         JsonObject json = new JsonObject();
 
@@ -315,7 +317,7 @@ public final class FaceTrackerActivity extends AppCompatActivity {
 
         mCameraSource = new CameraSource.Builder(context, detector)
                 .setRequestedPreviewSize(640, 480)
-                .setFacing(CameraSource.CAMERA_FACING_FRONT)
+                .setFacing(CameraSource.CAMERA_FACING_BACK)
                 .setRequestedFps(30.0f)
                 .build();
     }
